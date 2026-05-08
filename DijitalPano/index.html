@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Pano - Canlı Takip</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@900&family=Lalezar&family=Poppins:wght@700&display=swap" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/interact.js/1.10.27/interact.min.js"></script>
+    <link rel="icon" href="logo.png" type="image/png">
+    <style>
+        body { margin: 0; background: #064420 url('1.png') no-repeat center; background-size: 100% 100%; height: 100vh; overflow: hidden; }
+        .alan { position: absolute; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 5; box-shadow: 0 8px 15px rgba(0,0,0,0.3); }
+        .alan.daire { border-radius: 50% !important; }
+        .alan.kare { border-radius: 15px; }
+        .v-modu { border: 3px dashed yellow !important; cursor: move; z-index: 100 !important; }
+        .etiket { position: absolute; top: -15px; padding: 5px 15px; border-radius: 20px; border: 2px solid white; z-index: 10; color: white; font-weight: bold; }
+        .icerik-kapsayici { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; overflow: hidden; border-radius: inherit; position: relative; }
+        
+        video, img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; position: absolute; top: 0; left: 0; }
+
+        /* SAYAÇ TASARIMI */
+        .sayac-kapsayici { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; z-index: 2; padding: 10px; }
+        .su-an-ki { font-size: 0.9em; color: #064420; font-weight: bold; text-transform: uppercase; margin-bottom: 2px; }
+        .siradaki { font-size: 0.9em; font-weight: bold; opacity: 1; text-transform: uppercase; margin-top: 5px; }
+        .sayac-zaman { font-weight: bold; letter-spacing: -1px; margin-top: 5px; }
+        .kalan-etiket { font-size: 0.7em; opacity: 0.8; margin-bottom: -5px; margin-top: 5px; }
+        .video-ctrl { 
+    display: none; 
+    position: absolute; 
+    bottom: 10px; 
+    background: rgba(0,0,0,0.8); 
+    padding: 8px; 
+    border-radius: 8px; 
+    gap: 5px; 
+    z-index: 20; 
+}
+.v-modu .video-ctrl { display: flex; }
+.v-btn { 
+    color: white; 
+    background: #27ae60; 
+    border: none; 
+    padding: 5px 10px; 
+    cursor: pointer; 
+    font-size: 11px; 
+    border-radius: 4px; 
+}
+    </style>
+</head>
+<body>
+    <div id="pano-ekrani"></div>
+    <script>
+        const firebaseConfig = { databaseURL: "https://dijitalpano-272727-default-rtdb.europe-west1.firebasedatabase.app/" };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database().ref("panoSistemi");
+        let vModu = false;
+
+        // Teneffüsler, İstirahatler ve Yemekler Dahil Tam Liste
+        const program = [
+            {t:"04:40", ad:"KALKIŞ VE SABAH NAMAZI"},
+            {t:"05:10", ad:"1. MÜTALAA"},
+            {t:"06:00", ad:"İSTİRAHAT"},
+            {t:"07:00", ad:"KAHVALTI VE HAZIRLIK"},
+            {t:"07:30", ad:"1. VE 2. DERS"},
+            {t:"09:00", ad:"TENEFFÜS"},
+            {t:"09:20", ad:"3. VE 4. DERS"},
+            {t:"10:30", ad:"TENEFFÜS"},
+            {t:"10:45", ad:"5. DERS"},
+            {t:"11:20", ad:"ÖĞLE YEMEĞİ"},
+            {t:"12:30", ad:"ÖĞLEN NAMAZI"},
+            {t:"13:00", ad:"TENEFFÜS"},
+            {t:"13:30", ad:"2. MÜTALAA"},
+            {t:"14:45", ad:"TENEFFÜS"},
+            {t:"15:00", ad:"3. MÜTALAA"},
+            {t:"16:15", ad:"İKİNDİ NAMAZI"},
+            {t:"17:15", ad:"4. MÜTALAA"},
+            {t:"18:30", ad:"AKŞAM YEMEĞİ"},
+            {t:"19:15", ad:"5. MÜTALAA"},
+            {t:"20:15", ad:"AKŞAM NAMAZI"},
+            {t:"20:30", ad:"6. MÜTALAA"},
+            {t:"21:30", ad:"YATSI NAMAZI"},
+            {t:"21:45", ad:"YATIŞ"}
+        ];
+
+        db.on("value", s => {
+            const ekran = document.getElementById("pano-ekrani");
+            const veriler = s.val() || {};
+            
+            Object.keys(veriler).forEach(id => {
+                let kutu = document.getElementById(id); 
+                const d = veriler[id];
+
+                if (!kutu) { 
+                    kutu = document.createElement("div"); 
+                    kutu.id = id; 
+                    ekran.appendChild(kutu); 
+                    setupInteract(kutu, id); 
+                }
+
+                kutu.className = `alan ${d.sekil} ${vModu ? 'v-modu' : ''}`;
+                kutu.style.width = (d.w || 300) + 'px'; 
+                kutu.style.height = (d.h || 200) + 'px';
+                kutu.style.backgroundColor = d.arkaPlan || "#ffffff";
+                kutu.style.transform = `translate(${d.x || 50}px, ${d.y || 50}px)`;
+                kutu.setAttribute('data-x', d.x || 50); 
+                kutu.setAttribute('data-y', d.y || 50);
+
+                let icerikHTML = "";
+                if (d.tip === "saat") {
+                    icerikHTML = `<div style="font-family:${d.font}; font-size:${d.boyut}px; color:${d.renk}" class="canli-saat">00:00:00</div>`;
+                } else if (d.tip === "sayac") {
+                    icerikHTML = `
+                        <div class="sayac-kapsayici" style="font-family:${d.font}; color:${d.renk}">
+                            <div class="su-an-ki">Yükleniyor...</div>
+                            <div class="siradaki">SIRADAKİ: ...</div>
+                            <div class="kalan-etiket">SONRAKİNE KALAN</div>
+                            <div class="sayac-zaman" style="font-size:${d.boyut}px;">00:00:00</div>
+                        </div>`;
+                } else if (d.tip === "medya") {
+                    if (d.icerik && d.icerik.includes(".mp4")) {
+                        icerikHTML = `
+                        <video id="v-${id}" src="${d.icerik}" loop muted></video>
+                        <div class="video-ctrl">
+                            <button class="v-btn" onclick="const v=document.getElementById('v-${id}'); v.paused?v.play():v.pause()">OYNAT/DURDUR</button>
+                            <button class="v-btn" onclick="const v=document.getElementById('v-${id}'); v.muted=!v.muted; this.innerText=v.muted?'SES AÇ':'SES KAPAT'">SES AÇ</button>
+                            <button class="v-btn" onclick="document.getElementById('v-${id}').playbackRate=0.5">0.5x</button>
+                            <button class="v-btn" onclick="document.getElementById('v-${id}').playbackRate=1">1x</button>
+                            <button class="v-btn" onclick="document.getElementById('v-${id}').playbackRate=2">2x</button>
+                        </div>`;
+                    } else { 
+                        icerikHTML = `<img src="${d.icerik || ''}">`; 
+                    }
+                } else {
+                    icerikHTML = `<div style="font-family:${d.font}; font-size:${d.boyut}px; color:${d.renk}">${d.icerik || ''}</div>`;
+                }
+
+                kutu.innerHTML = `<div class="etiket" style="font-family:${d.baslikFont}; font-size:${d.baslikBoyut}px; background:${d.baslikArkaPlan}">${d.baslik}</div><div class="icerik-kapsayici">${icerikHTML}</div>`;
+                
+                const videoElement = document.getElementById(`v-${id}`);
+                if (videoElement) videoElement.play().catch(() => {});
+            });
+        });
+
+        setInterval(() => {
+            const simdi = new Date();
+            const dk = simdi.getHours() * 60 + simdi.getMinutes();
+            
+            let suAnkiIndex = -1;
+            for(let i=0; i < program.length; i++) {
+                const [h, m] = program[i].t.split(":").map(Number);
+                if((h*60 + m) <= dk) suAnkiIndex = i;
+            }
+            
+            let suAnki = suAnkiIndex !== -1 ? program[suAnkiIndex] : program[program.length-1];
+            let siradaki = program[(suAnkiIndex + 1) % program.length];
+
+            // Teneffüs/Ders Durumu Tespiti
+            let durumMetni = siradaki.ad.includes("TENEFFÜS") ? "TENEFFÜSE VAR" : "DERSE VAR";
+            if (suAnki.ad.includes("TENEFFÜS") || suAnki.ad.includes("İSTİRAHAT")) {
+                durumMetni = "DERSE KALAN";
+            } else {
+                durumMetni = "SONRAKİNE KALAN";
+            }
+
+            document.querySelectorAll(".sayac-kapsayici").forEach(el => {
+                el.querySelector(".su-an-ki").innerText = "ŞU AN: " + suAnki.ad;
+                el.querySelector(".siradaki").innerText = "SIRADAKİ: " + siradaki.ad;
+                el.querySelector(".kalan-etiket").innerText = durumMetni;
+
+                const [h, m] = siradaki.t.split(":").map(Number);
+                let hT = new Date(); hT.setHours(h, m, 0); if(hT < simdi) hT.setDate(hT.getDate() + 1);
+                const fark = hT - simdi;
+                const s = Math.floor(fark/3600000); const d = Math.floor((fark%3600000)/60000); const sn = Math.floor((fark%60000)/1000);
+                el.querySelector(".sayac-zaman").innerText = `${s}s ${d}d ${sn}s`;
+            });
+            document.querySelectorAll(".canli-saat").forEach(el => el.innerText = simdi.toLocaleTimeString());
+        }, 1000);
+
+        function setupInteract(el, id) {
+            interact(el).draggable({
+                onmove: e => { if(!vModu) return; let x = (parseFloat(e.target.getAttribute('data-x'))||0)+e.dx; let y = (parseFloat(e.target.getAttribute('data-y'))||0)+e.dy; e.target.style.transform=`translate(${x}px,${y}px)`; e.target.setAttribute('data-x',x); e.target.setAttribute('data-y',y); },
+                onend: e => { if(vModu) db.child(id).update({x: parseFloat(e.target.getAttribute('data-x')), y: parseFloat(e.target.getAttribute('data-y'))}); }
+            }).resizable({
+                edges: { left: true, right: true, bottom: true, top: true },
+                onmove: e => { if(!vModu) return; let x = (parseFloat(e.target.getAttribute('data-x'))||0) + e.deltaRect.left; let y = (parseFloat(e.target.getAttribute('data-y'))||0) + e.deltaRect.top; e.target.style.width = e.rect.width + 'px'; e.target.style.height = e.rect.height + 'px'; e.target.style.transform = `translate(${x}px,${y}px)`; e.target.setAttribute('data-x', x); e.target.setAttribute('data-y', y); },
+                onend: e => { if(vModu) db.child(id).update({w: e.rect.width, h: e.rect.height, x: parseFloat(e.target.getAttribute('data-x')), y: parseFloat(e.target.getAttribute('data-y'))}); }
+            });
+        }
+        window.addEventListener('keydown', e => { if(e.key.toLowerCase()==='v') { vModu=!vModu; document.querySelectorAll('.alan').forEach(k=>vModu?k.classList.add('v-modu'):k.classList.remove('v-modu')); }});
+    </script>
+</body>
+</html>
